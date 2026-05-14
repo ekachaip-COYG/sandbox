@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant Randomizer</title>
+    <style>
+        body { font-family: 'Tahoma', sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; padding: 20px; }
+        .container { background: white; padding: 2rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
+        h2 { color: #333; }
+        .input-group { display: flex; gap: 5px; margin-bottom: 20px; }
+        input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+        button { cursor: pointer; border: none; border-radius: 5px; transition: 0.3s; }
+        .btn-add { background: #28a745; color: white; padding: 10px 15px; }
+        .btn-random { background: #007bff; color: white; width: 100%; padding: 15px; font-size: 1.1rem; margin-bottom: 10px; }
+        .btn-reset { background: #6c757d; color: white; width: 100%; padding: 10px; }
+        ul { list-style: none; padding: 0; text-align: left; }
+        li { background: #fff; border-bottom: 1px solid #eee; padding: 10px; display: flex; justify-content: space-between; align-items: center; }
+        li.eliminated { text-decoration: line-through; color: #bbb; background: #f9f9f9; }
+        .btn-del { background: #ff4d4d; color: white; padding: 2px 8px; font-size: 0.8rem; }
+        #result { margin-top: 20px; font-weight: bold; color: #d9534f; font-size: 1.2rem; min-height: 1.5em; }
+        .winner { color: #28a745 !important; font-size: 1.5rem !important; border: 2px solid #28a745; padding: 10px; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🍴 กินอะไรดี ? </h2>
+    
+    <div class="input-group">
+        <input type="text" id="shopInput" placeholder="เพิ่มชื่อร้านอาหาร...">
+        <button class="btn-add" onclick="addShop()">เพิ่ม</button>
+    </div>
+
+    <ul id="shopList"></ul>
+
+    <button class="btn-random" onclick="eliminateOne()">❌ สุ่มคัดออกทีละร้าน</button>
+    <button class="btn-reset" onclick="resetList()">🔄 รีเซ็ตใหม่หมด</button>
+
+    <div id="result"></div>
+</div>
+
+<script>
+    let shops = [
+        "Big C (Food Court)", "The Street (ข้าวมันไก่)", 
+        "The Street (ถูกและดี)", "The Street (เสือร้องไห้)", 
+        "ราเมง ปั๊มจีน", "ส้มตำ เลยปั๊มจีน"
+    ];
+    let activeShops = [...shops];
+
+    function renderList() {
+        const listEl = document.getElementById('shopList');
+        listEl.innerHTML = '';
+        shops.forEach((shop, index) => {
+            const li = document.createElement('li');
+            if (!activeShops.includes(shop)) li.className = 'eliminated';
+            li.innerHTML = `${shop} <button class="btn-del" onclick="removeShop(${index})">ลบ</button>`;
+            listEl.appendChild(li);
+        });
+    }
+
+    function addShop() {
+        const input = document.getElementById('shopInput');
+        if (input.value.trim()) {
+            shops.push(input.value.trim());
+            activeShops.push(input.value.trim());
+            input.value = '';
+            renderList();
+        }
+    }
+
+    function removeShop(index) {
+        const shopName = shops[index];
+        shops.splice(index, 1);
+        activeShops = activeShops.filter(s => s !== shopName);
+        renderList();
+    }
+
+    function eliminateOne() {
+        const resultDiv = document.getElementById('result');
+        
+        if (activeShops.length > 1) {
+            const randomIndex = Math.floor(Math.random() * activeShops.length);
+            const removed = activeShops.splice(randomIndex, 1);
+            resultDiv.innerHTML = `🚫 คัดออก: ${removed[0]}`;
+            renderList();
+        } 
+        
+        if (activeShops.length === 1) {
+            resultDiv.innerHTML = `<div class="winner">🏆 ผู้ชนะ: ${activeShops[0]}</div>`;
+        }
+    }
+
+    function resetList() {
+        activeShops = [...shops];
+        document.getElementById('result').innerHTML = '';
+        renderList();
+    }
+
+    // Initial render
+    renderList();
+</script>
+
+</body>
+</html>
