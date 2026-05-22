@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Project Dashboard (Google Sheets)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap');
+        body { font-family: 'Sarabun', sans-serif; background-color: #f4f6f9; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-slate-800">Project Tracking 2026</h1>
+                <p class="text-slate-500">Source: <span class="text-indigo-600 font-bold">Google Sheets (PBI_ProjectData)</span></p>
+            </div>
+            <button onclick="fetchData()" id="refreshBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-full transition shadow-lg font-bold flex items-center gap-2">
+                🔄 Refresh Data
+            </button>
+        </header>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border-b-4 border-blue-500">
+                <p class="text-xs text-slate-400 font-bold uppercase">Total Projects</p>
+                <p id="totalCount" class="text-3xl font-bold">0</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border-b-4 border-green-500">
+                <p class="text-xs text-slate-400 font-bold uppercase">Completed</p>
+                <p id="completedCount" class="text-3xl font-bold text-green-600">0</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border-b-4 border-amber-400">
+                <p class="text-xs text-slate-400 font-bold uppercase">In Progress</p>
+                <p id="progressCount" class="text-3xl font-bold text-amber-600">0</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border-b-4 border-rose-500">
+                <p class="text-xs text-slate-400 font-bold uppercase">On Hold</p>
+                <p id="onHoldCount" class="text-3xl font-bold text-rose-600">0</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
+                <h3 class="text-lg font-bold mb-4 text-slate-700">Project Status</h3>
+                <div class="w-full h-[250px]"><canvas id="statusPieChart"></canvas></div>
+            </div>
+
+            <div class="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h3 class="text-lg font-bold mb-4 text-slate-700">Search & Filters</h3>
+                <div class="space-y-4">
+                    <input type="text" id="searchBox" placeholder="ค้นหาชื่อโครงการ..." oninput="filterData()" class="w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500">
+                    <div class="grid grid-cols-2 gap-4">
+                        <select id="pmFilter" onchange="filterData()" class="border border-slate-200 rounded-xl px-4 py-2 outline-none">
+                            <option value="">All Managers</option>
+                        </select>
+                        <select id="yearFilter" onchange="filterData()" class="border border-slate-200 rounded-xl px-4 py-2 outline-none">
+                            <option value="">All Years</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm overflow-hidden border border-slate-100">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">
+                        <tr>
+                            <th class="px-6 py-4">Project Name</th>
+                            <th class="px-6 py-4">Manager</th>
+                            <th class="px-6 py-4">Status</th>
+                            <th class="px-6 py-4">Progress</th>
+                            <th class="px-6 py-4 text-center">Priority</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-100 text-sm">
+                        <tr><td colspan="5" class="px-6 py-10 text-center text-slate-400">กำลังดึงข้อมูลจาก Google Sheets...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // กำหนดค่าเริ่มต้น
+        const SPREADSHEET_ID = '1fj4qF7GbcusY_HnibYhdodqmILpJQi_ST2BJMgOxvzI';
+        const SHEET_NAME = 'PBI_ProjectData';
+        
+        let rawData = [];
+        let chartInstance = null;
+
+       async function fetchData() {
+    const refreshBtn = document.getElementById('refreshBtn');
+    refreshBtn.innerHTML = "⏳ Loading...";
+    
+    // ปรับ URL ให้ดึงข้อมูลแบบครอบคลุม
+    const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&tq=SELECT%20*`;
+
+    try {
+        const response = await fetch(url);
+        const text = await response.text();
+        
+        // จัดการกับ Format ของ Google
+        const startIndex = text.indexOf('(') + 1;
+        const endIndex = text.lastIndexOf(')');
+        const json = JSON.parse(text.substring(startIndex, endIndex));
+        
+        const rows = json.table.rows;
+        const cols = json.table.cols;
+
+        // แปลงข้อมูลโดยลบช่องว่างออกจากชื่อ Header ทั้งหมด
+        rawData = rows.map(row => {
+            const item = {};
+            row.c.forEach((cell, i) => {
+                // ลบช่องว่างและอักขระพิเศษออกจากหัวตารางเพื่อให้เรียกใช้ง่าย
+                let colLabel = (cols[i].label || "").replace(/\s+/g, '');
+                item[colLabel] = cell ? cell.v : null;
+            });
+            return item;
+        });
+
+        console.log("Data Received:", rawData); // ดูข้อมูลใน Console
+
+        if(rawData.length === 0) {
+            alert("ดึงไฟล์ได้แต่ไม่มีข้อมูลใน Sheet");
+        }
+
+        populateFilters(rawData);
+        filterData();
+        
+    } catch (error) {
+        console.error("Fetch Error:", error);
+        alert("เชื่อมต่อไม่ได้! ตรวจสอบว่าชื่อ Sheet คือ 'PBI_ProjectData' และ ID ถูกต้อง");
+    } finally {
+        refreshBtn.innerHTML = "🔄 Refresh Data";
+    }
+}
+
+        function populateFilters(data) {
+            const pmSelect = document.getElementById('pmFilter');
+            const yearSelect = document.getElementById('yearFilter');
+
+            const pms = [...new Set(data.map(i => i.ProjectManager).filter(Boolean))].sort();
+            const years = [...new Set(data.map(i => i.Year).filter(Boolean))].sort((a,b) => b-a);
+
+            pmSelect.innerHTML = '<option value="">All Managers</option>';
+            pms.forEach(pm => pmSelect.innerHTML += `<option value="${pm}">${pm}</option>`);
+
+            yearSelect.innerHTML = '<option value="">All Years</option>';
+            years.forEach(yr => yearSelect.innerHTML += `<option value="${yr}">${yr}</option>`);
+        }
+
+        function filterData() {
+            const search = document.getElementById('searchBox').value.toLowerCase();
+            const pm = document.getElementById('pmFilter').value;
+            const year = document.getElementById('yearFilter').value;
+
+            const filtered = rawData.filter(item => {
+                return (String(item.ProjectName || '').toLowerCase().includes(search)) &&
+                       (pm === "" || item.ProjectManager === pm) &&
+                       (year === "" || String(item.Year) === year);
+            });
+
+            updateUI(filtered);
+        }
+
+        function updateUI(data) {
+            // Stats
+            document.getElementById('totalCount').textContent = data.length;
+            document.getElementById('completedCount').textContent = data.filter(i => i.Status === 'Completed').length;
+            document.getElementById('progressCount').textContent = data.filter(i => ['In Progress', 'Test', 'Development'].includes(i.Status)).length;
+            document.getElementById('onHoldCount').textContent = data.filter(i => i.Status === 'On Hold').length;
+
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = data.map(item => {
+                // คำนวณ Progress (ถ้าเป็น 0.85 ให้เป็น 85%)
+                let prog = parseFloat(item.Progress) || 0;
+                if (prog > 0 && prog <= 1) prog *= 100;
+
+                let statusColor = "bg-slate-100 text-slate-600";
+                if(item.Status === "Completed") statusColor = "bg-green-100 text-green-700";
+                else if(["In Progress", "Test", "Development"].includes(item.Status)) statusColor = "bg-amber-100 text-amber-700";
+                else if(item.Status === "On Hold") statusColor = "bg-rose-100 text-rose-700";
+
+                return `
+                    <tr class="hover:bg-slate-50 transition border-b border-slate-50">
+                        <td class="px-6 py-4 font-bold text-slate-800">${item.ProjectName || '-'}</td>
+                        <td class="px-6 py-4 text-slate-600 text-xs">${item.ProjectManager || '-'}</td>
+                        <td class="px-6 py-4"><span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase ${statusColor}">${item.Status || '-'}</span></td>
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-2">
+                                <div class="flex-grow bg-slate-100 rounded-full h-2 w-24 overflow-hidden">
+                                    <div class="bg-indigo-500 h-full" style="width: ${prog}%"></div>
+                                </div>
+                                <span class="text-[10px] font-bold text-slate-500">${Math.round(prog)}%</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 text-center font-bold ${item.Priority === 'High' ? 'text-rose-500' : 'text-slate-400'}">${item.Priority || '-'}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            renderChart(data);
+        }
+
+        function renderChart(data) {
+            const counts = {};
+            data.forEach(i => { const s = i.Status || 'N/A'; counts[s] = (counts[s] || 0) + 1; });
+            const ctx = document.getElementById('statusPieChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(counts),
+                    datasets: [{
+                        data: Object.values(counts),
+                        backgroundColor: ['#10b981', '#f59e0b', '#3b82f6', '#f43f5e', '#64748b']
+                    }]
+                },
+                options: { maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'bottom' } } }
+            });
+        }
+
+        // เริ่มโหลดข้อมูลทันที
+        fetchData();
+    </script>
+</body>
+</html>
