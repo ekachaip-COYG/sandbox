@@ -43,15 +43,19 @@
                 </p>
             </div>
             <div class="flex flex-col items-end gap-2">
-                <div class="flex items-center gap-4">
-                    <button id="clearBtn" onclick="clearStoredData()" class="hidden text-rose-500 hover:text-rose-700 text-sm font-bold transition-colors">
-                        🗑️ Clear Stored Data
-                    </button>
-                    <input type="file" id="excelFile" accept=".xlsx, .xls" class="hidden" onchange="handleFile(this)">
-                    <button onclick="document.getElementById('excelFile').click()" class="bg-slate-900 hover:bg-indigo-600 text-white px-8 py-3.5 rounded-2xl transition-all duration-300 shadow-xl font-bold flex items-center gap-3">
-                        📁 Import Dataset
-                    </button>
-                </div>
+
+		<div class="flex items-center gap-4">
+    			<button id="clearBtn" onclick="clearStoredData()" class="hidden text-rose-500 hover:text-rose-700 text-sm font-bold transition-colors">
+        		🗑️ Clear Stored Data
+    			</button>
+    			<button onclick="syncFromSheet()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3.5 rounded-2xl transition-all duration-300 shadow-xl font-bold flex items-center gap-3">
+        		🔄 Sync from Google Sheet
+    			</button>
+    			<input type="file" id="excelFile" accept=".xlsx, .xls" class="hidden" onchange="handleFile(this)">
+    			<button onclick="document.getElementById('excelFile').click()" class="bg-slate-900 hover:bg-indigo-600 text-white px-6 py-3.5 rounded-2xl transition-all duration-300 shadow-xl font-bold flex items-center gap-3">
+        		📁 Import File
+    		</button>
+	</div>
                 <p id="lastUploadText" class="text-[10px] text-slate-400 font-medium italic hidden"></p>
             </div>
         </header>
@@ -349,6 +353,40 @@
                 options: { maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, font: { family: 'Sarabun', weight: 'bold', size: 12 }, padding: 25 } } } }
             });
         }
+
+// ฟังก์ชันดึงข้อมูลจาก Google Sheet ผ่าน Apps Script
+function syncFromSheet() {
+    const btn = event.currentTarget;
+    const originalText = btn.innerHTML;
+    btn.innerHTML = "⌛ Loading...";
+    btn.disabled = true;
+
+    google.script.run.withSuccessHandler(function(response) {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+
+        if (response.error) {
+            alert("Error: " + response.error);
+            return;
+        }
+
+        // กรอง Status ว่างออกตามเงื่อนไข
+        rawData = response.data.filter(item => item.Status && String(item.Status).trim() !== "");
+        
+        // บันทึกค่า
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(rawData));
+        localStorage.setItem(TIME_KEY, response.time + " (via Google Sheet)");
+
+        document.getElementById('clearBtn').classList.remove('hidden');
+        const timeEl = document.getElementById('lastUploadText');
+        timeEl.textContent = `Last Sync: ${response.time} (Google Sheet)`;
+        timeEl.classList.remove('hidden');
+
+        setupFilters();
+        filterData();
+        alert("Sync ข้อมูลจาก Google Sheet สำเร็จ!");
+    }).getSheetData();
+}
     </script>
 </body>
 </html>
