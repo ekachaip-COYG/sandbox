@@ -43,19 +43,18 @@
                 </p>
             </div>
             <div class="flex flex-col items-end gap-2">
-
-		<div class="flex items-center gap-4">
-    			<button id="clearBtn" onclick="clearStoredData()" class="hidden text-rose-500 hover:text-rose-700 text-sm font-bold transition-colors">
-        		🗑️ Clear Stored Data
-    			</button>
-    			<button onclick="syncFromSheet()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3.5 rounded-2xl transition-all duration-300 shadow-xl font-bold flex items-center gap-3">
-        		🔄 Sync from Google Sheet
-    			</button>
-    			<input type="file" id="excelFile" accept=".xlsx, .xls" class="hidden" onchange="handleFile(this)">
-    			<button onclick="document.getElementById('excelFile').click()" class="bg-slate-900 hover:bg-indigo-600 text-white px-6 py-3.5 rounded-2xl transition-all duration-300 shadow-xl font-bold flex items-center gap-3">
-        		📁 Import File
-    		</button>
-	</div>
+                <div class="flex items-center gap-4">
+                    <button id="clearBtn" onclick="clearStoredData()" class="hidden text-rose-500 hover:text-rose-700 text-sm font-bold transition-colors">
+                        🗑️ Clear Stored Data
+                    </button>
+                    <button onclick="syncFromSheet()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3.5 rounded-2xl transition-all duration-300 shadow-xl font-bold flex items-center gap-3">
+                        🔄 Sync from Google Sheet
+                    </button>
+                    <input type="file" id="excelFile" accept=".xlsx, .xls" class="hidden" onchange="handleFile(this)">
+                    <button onclick="document.getElementById('excelFile').click()" class="bg-slate-900 hover:bg-indigo-600 text-white px-6 py-3.5 rounded-2xl transition-all duration-300 shadow-xl font-bold flex items-center gap-3">
+                        📁 Import File
+                    </button>
+                </div>
                 <p id="lastUploadText" class="text-[10px] text-slate-400 font-medium italic hidden"></p>
             </div>
         </header>
@@ -85,6 +84,37 @@
                 <input type="text" id="searchBox" placeholder="Project name..." oninput="filterData()" class="w-full bg-slate-50 border-none rounded-2xl px-5 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition">
             </div>
             <div id="filterContainers" class="contents"></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-10 mb-10">
+            <div class="lg:col-span-2 bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100 flex flex-col min-h-[400px]">
+                <div class="mb-4">
+                    <h3 class="font-bold text-xl text-slate-800">Resource Workload Analysis</h3>
+                    <p class="text-xs text-slate-400 font-medium mt-1">จำนวนโปรเจกต์และการกระจายความสำคัญแยกตาม Project Manager</p>
+                </div>
+                <div class="flex-grow relative h-[300px]">
+                    <canvas id="resourceWorkloadChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="glass-card p-8 rounded-[2rem] shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="font-bold text-xl text-slate-800 mb-2">Resource Summary Table</h3>
+                    <p class="text-xs text-slate-400 font-medium mb-4">ตารางสรุปจำนวนภาระงานรายบุคคล</p>
+                </div>
+                <div class="overflow-y-auto max-h-[300px] pr-2">
+                    <table class="w-full text-sm text-left">
+                        <thead class="text-xs uppercase text-slate-400 font-bold border-b pb-2">
+                            <tr>
+                                <th class="py-2">Manager</th>
+                                <th class="py-2 text-center">Total Projects</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resourceTableBody" class="divide-y divide-slate-100 text-slate-700 font-medium">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-10">
@@ -120,12 +150,14 @@
         let rawData = [];
         let filteredData = [];
         let chartInstance = null;
+        let workloadChartInstance = null;
         let sortDirection = 1;
         const TARGET_SHEET = "PBI_ProjectData";
         const STORAGE_KEY = "itbp_dashboard_data";
         const TIME_KEY = "itbp_last_upload_time";
 
         const statusColors = { 'Completed': '#10b981', 'On Hold': '#f43f5e', 'In Progress': '#6366f1', 'Test': '#f59e0b', 'Development': '#a855f7' };
+        const priorityColors = { 'High': '#ef4444', 'Medium': '#f59e0b', 'Low': '#3b82f6', 'Not Specified': '#94a3b8' };
         const palette = ['#ec4899', '#8b5cf6', '#14b8a6', '#f97316', '#0ea5e9'];
 
         window.onload = function() {
@@ -134,7 +166,6 @@
             
             if (savedData) {
                 rawData = JSON.parse(savedData);
-                // กรองเฉพาะที่มี Status ตั้งแต่ตอนโหลด
                 rawData = rawData.filter(item => item.Status && String(item.Status).trim() !== "");
                 
                 document.getElementById('clearBtn').classList.remove('hidden');
@@ -145,6 +176,9 @@
                 }
                 setupFilters();
                 filterData();
+            } else {
+                // ออโต้ซิงค์ครั้งแรกถ้าสเปซว่าง
+                if (typeof google !== 'undefined') syncFromSheet();
             }
         };
 
@@ -156,11 +190,8 @@
                 if (!workbook.SheetNames.includes(TARGET_SHEET)) return alert("Sheet not found!");
                 
                 let data = XLSX.utils.sheet_to_json(workbook.Sheets[TARGET_SHEET]);
-                
-                // ✅ กฎข้อที่ 1: ถ้า status ไม่มีค่า ไม่ต้องนำมาแสดงและนับ
                 rawData = data.filter(item => item.Status && String(item.Status).trim() !== "");
 
-                // ✅ กฎข้อที่ 2: บันทึกวันเวลาที่ upload
                 const now = new Date();
                 const timeString = now.toLocaleString('th-TH', { 
                     day: '2-digit', month: 'short', year: 'numeric', 
@@ -179,6 +210,31 @@
                 filterData();
             };
             reader.readAsArrayBuffer(file);
+        }
+
+        function syncFromSheet() {
+            const btn = event ? event.currentTarget : null;
+            let originalText = "";
+            if(btn) { originalText = btn.innerHTML; btn.innerHTML = "⌛ Loading..."; btn.disabled = true; }
+
+            google.script.run.withSuccessHandler(function(response) {
+                if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
+                if (response.error) { alert("Error: " + response.error); return; }
+
+                rawData = response.data.filter(item => item.Status && String(item.Status).trim() !== "");
+                
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(rawData));
+                localStorage.setItem(TIME_KEY, response.time + " (via Google Sheet)");
+
+                document.getElementById('clearBtn').classList.remove('hidden');
+                const timeEl = document.getElementById('lastUploadText');
+                timeEl.textContent = `Last Sync: ${response.time} (Google Sheet)`;
+                timeEl.classList.remove('hidden');
+
+                setupFilters();
+                filterData();
+                if(event) alert("Sync ข้อมูลจาก Google Sheet สำเร็จ!");
+            }).getSheetData();
         }
 
         function clearStoredData() {
@@ -261,24 +317,46 @@
         }
 
         function formatMultiLine(text) {
-            if (!text) return '<span class="text-slate-300 italic">No data recorded.</span>';
-            const lines = String(text).split('-').map(l => l.trim()).filter(l => l.length > 0);
-            if (lines.length <= 1 && !String(text).startsWith('-')) return text;
-            return `<ul class="list-none space-y-2">
-                ${lines.map(line => `<li class="flex gap-2">
-                    <span class="text-indigo-400 font-bold">•</span>
-                    <span>${line}</span>
-                </li>`).join('')}
-            </ul>`;
-        }
+    if (!text) return '<span class="text-slate-300 italic">No data recorded.</span>';
+    
+    // แปลงข้อมูลเป็น String เผื่อกรณีที่เป็นตัวเลขล้วน
+    let strText = String(text).trim();
+    
+    // 🔍 ตรวจสอบว่าเป็นรูปแบบวันที่หรือไม่ (เช่น 2026-12-01 หรือ 14-May-2026)
+    // ถ้ารายการทั้งหมดเป็นแค่วันที่อย่างเดียว ไม่ต้องทำเป็น Bullet list
+    const isFullDate = /^\d{4}-\d{2}-\d{2}$|^\d{1,2}-[A-Za-z]{3}-\d{4}$/.test(strText);
+    if (isFullDate) return strText;
+
+    /* 🧙‍♂️ ใช้ Regex ขั้นสูงในการหั่นบรรทัด:
+      จะหั่นด้วยเครื่องหมาย "-" ก็ต่อเมื่อ:
+      1. ด้านหน้าของ "-" ไม่ใช่ตัวเลขหรือตัวอักษรที่ติดกัน (ป้องกัน 14-May หรือ 2026-12)
+      2. ด้านหลังของ "-" ไม่ใช่ตัวเลข (ป้องกัน -01 หรือ -2026)
+      3. หรือเป็นเครื่องหมาย "-" ที่มีเคาะเว้นวรรคอยู่ด้วย (เช่น "- ทำข้อแรก", "ข้อแรก - ข้อสอง")
+    */
+    const lines = strText
+        .split(/(?<!\d|[A-Za-z])-(?!\d)|(?<=\s)-(?=\s)/)
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
+        
+    // ถ้าหั่นออกมาแล้วได้บรรทัดเดียว และข้อความเดิมไม่ได้เริ่มต้นด้วย "-" ให้แสดงแบบปกติ
+    if (lines.length <= 1 && !strText.startsWith('-')) return strText;
+    
+    // แสดงผลเป็น List รายการที่สวยงาม
+    return `<ul class="list-none space-y-2">
+        ${lines.map(line => `<li class="flex gap-2">
+            <span class="text-indigo-400 font-bold">•</span>
+            <span>${line}</span>
+        </li>`).join('')}
+    </ul>`;
+}
 
         function updateUI() {
-            // ✅ จำนวนสรุปจะนับจาก filteredData ซึ่งกรอง Status ว่างออกไปแล้วตั้งแต่ต้น
             document.getElementById('totalCount').textContent = filteredData.length;
             document.getElementById('completedCount').textContent = filteredData.filter(i => i.Status === 'Completed').length;
             document.getElementById('progressCount').textContent = filteredData.filter(i => ['In Progress','Test','Development'].includes(i.Status)).length;
             document.getElementById('onHoldCount').textContent = filteredData.filter(i => i.Status === 'On Hold').length;
 
+            // Render ตาราง Project List
             const tbody = document.getElementById('tableBody');
             tbody.innerHTML = filteredData.map((item, index) => {
                 let prog = (parseFloat(item.Progress) || 0) * (item.Progress <= 1 ? 100 : 1);
@@ -329,7 +407,9 @@
                     </tr>
                 `;
             }).join('') || '<tr><td colspan="5" class="px-6 py-20 text-center text-slate-300">No projects found.</td></tr>';
-            renderChart(filteredData);
+            
+            renderCharts(filteredData);
+            renderResourceTable(filteredData);
         }
 
         function toggleDetail(index) {
@@ -340,75 +420,113 @@
             if(icon) icon.style.transform = isActive ? 'rotate(0deg)' : 'rotate(180deg)';
         }
 
-        function renderChart(data) {
+        // ฟังก์ชันเจนข้อมูลสำหรับ Resource Table ด้านขวา
+        function renderResourceTable(data) {
             const counts = {};
-            data.forEach(i => { counts[i.Status] = (counts[i.Status] || 0) + 1; });
-            const labels = Object.keys(counts);
-            const colors = labels.map((l, idx) => statusColors[l] || palette[idx % palette.length]);
-            const ctx = document.getElementById('statusPieChart').getContext('2d');
+            data.forEach(item => {
+                let pm = item.ProjectManager || 'Unassigned';
+                counts[pm] = (counts[pm] || 0) + 1;
+            });
+
+            // เรียงลำดับจากคนงานเยอะที่สุดลงมา
+            const sortedResources = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+            const tableBody = document.getElementById('resourceTableBody');
+            
+            if(sortedResources.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="2" class="py-4 text-center text-slate-300 italic">No resource data</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = sortedResources.map(([pm, total]) => `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="py-3 font-semibold text-slate-800">${pm}</td>
+                    <td class="py-3 text-center font-bold text-indigo-600 bg-indigo-50/50 rounded-xl px-2 w-16">${total}</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderCharts(data) {
+            // 1. Render Status Doughnut Chart (ของเดิม)
+            const statusCounts = {};
+            data.forEach(i => { statusCounts[i.Status] = (statusCounts[i.Status] || 0) + 1; });
+            const sLabels = Object.keys(statusCounts);
+            const sColors = sLabels.map((l, idx) => statusColors[l] || palette[idx % palette.length]);
+            
+            const ctxStatus = document.getElementById('statusPieChart').getContext('2d');
             if (chartInstance) chartInstance.destroy();
-            chartInstance = new Chart(ctx, {
+            chartInstance = new Chart(ctxStatus, {
                 type: 'doughnut',
-                data: { labels: labels, datasets: [{ data: Object.values(counts), backgroundColor: colors, borderWidth: 0, hoverOffset: 25 }] },
+                data: { labels: sLabels, datasets: [{ data: Object.values(statusCounts), backgroundColor: sColors, borderWidth: 0, hoverOffset: 25 }] },
                 options: { maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, font: { family: 'Sarabun', weight: 'bold', size: 12 }, padding: 25 } } } }
             });
-        }
 
-window.onload = function() {
-        const savedData = localStorage.getItem(STORAGE_KEY);
-        const savedTime = localStorage.getItem(TIME_KEY);
-        
-        if (savedData) {
-            rawData = JSON.parse(savedData);
-            rawData = rawData.filter(item => item.Status && String(item.Status).trim() !== "");
+            // 🚀 2. Render Resource Workload Stacked Bar Chart (เพิ่มใหม่)
+            const pmData = {}; // โครงสร้าง: { PM_Name: { High: 0, Medium: 0, Low: 0, 'Not Specified': 0 } }
             
-            document.getElementById('clearBtn').classList.remove('hidden');
-            if(savedTime) {
-                const timeEl = document.getElementById('lastUploadText');
-                timeEl.textContent = `Last Upload: ${savedTime}`;
-                timeEl.classList.remove('hidden');
-            }
-            setupFilters();
-            filterData();
-        } else {
-            // ✨ ถ้าไม่มีข้อมูลในเครื่อง ให้เรียก Sync จาก Google Sheet อัตโนมัติในครั้งแรก
-            syncFromSheet(); 
+            data.forEach(item => {
+                let pm = item.ProjectManager || 'Unassigned';
+                let priority = item.Priority || 'Not Specified';
+                
+                // คลีนค่า Priority เผื่อในชีทสะกดแปลกๆ
+                if (!['High', 'Medium', 'Low'].includes(priority)) {
+                    priority = 'Not Specified';
+                }
+
+                if (!pmData[pm]) {
+                    pmData[pm] = { 'High': 0, 'Medium': 0, 'Low': 0, 'Not Specified': 0 };
+                }
+                pmData[pm][priority]++;
+            });
+
+            const pLabels = Object.keys(pmData); // รายชื่อ PM ทั้งหมด
+            const highDataset = [];
+            const mediumDataset = [];
+            const lowDataset = [];
+            const nsDataset = [];
+
+            pLabels.forEach(pm => {
+                highDataset.push(pmData[pm]['High']);
+                mediumDataset.push(pmData[pm]['Medium']);
+                lowDataset.push(pmData[pm]['Low']);
+                nsDataset.push(pmData[pm]['Not Specified']);
+            });
+
+            const ctxWorkload = document.getElementById('resourceWorkloadChart').getContext('2d');
+            if (workloadChartInstance) workloadChartInstance.destroy();
+            
+            workloadChartInstance = new Chart(ctxWorkload, {
+                type: 'bar',
+                data: {
+                    labels: pLabels,
+                    datasets: [
+                        { label: '🔥 High Priority', data: highDataset, backgroundColor: priorityColors['High'] },
+                        { label: '⚡ Medium Priority', data: mediumDataset, backgroundColor: priorityColors['Medium'] },
+                        { label: '🟢 Low Priority', data: lowDataset, backgroundColor: priorityColors['Low'] },
+                        { label: '⚪ Not Specified', data: nsDataset, backgroundColor: priorityColors['Not Specified'] }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'Sarabun', size: 11, weight: 'bold' } } },
+                        y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, font: { family: 'Sarabun' } } }
+                    },
+                    plugins: {
+                        legend: { position: 'top', labels: { usePointStyle: true, font: { family: 'Sarabun', weight: 'bold', size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                footer: (tooltipItems) => {
+                                    let sum = 0;
+                                    tooltipItems.forEach(function(tooltipItem) { sum += tooltipItem.parsed.y; });
+                                    return 'Total Projects: ' + sum;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
-    };
-
-// ฟังก์ชันดึงข้อมูลจาก Google Sheet ผ่าน Apps Script
-function syncFromSheet() {
-    const btn = event.currentTarget;
-    const originalText = btn.innerHTML;
-    btn.innerHTML = "⌛ Loading...";
-    btn.disabled = true;
-
-    google.script.run.withSuccessHandler(function(response) {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
-
-        if (response.error) {
-            alert("Error: " + response.error);
-            return;
-        }
-
-        // กรอง Status ว่างออกตามเงื่อนไข
-        rawData = response.data.filter(item => item.Status && String(item.Status).trim() !== "");
-        
-        // บันทึกค่า
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(rawData));
-        localStorage.setItem(TIME_KEY, response.time + " (via Google Sheet)");
-
-        document.getElementById('clearBtn').classList.remove('hidden');
-        const timeEl = document.getElementById('lastUploadText');
-        timeEl.textContent = `Last Sync: ${response.time} (Google Sheet)`;
-        timeEl.classList.remove('hidden');
-
-        setupFilters();
-        filterData();
-        alert("Sync ข้อมูลจาก Google Sheet สำเร็จ!");
-    }).getSheetData();
-}
     </script>
 </body>
 </html>
